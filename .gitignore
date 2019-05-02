@@ -1,0 +1,38 @@
+# Created by https://www.gitignore.io/api/erlang,jupyternotebook
+# Edit at https://www.gitignore.io/?templates=erlang,jupyternotebook
+
+### Erlang ###
+.eunit
+deps
+*.o
+*.beam
+*.plt
+erl_crash.dump
+.concrete/DEV_MODE
+.rebar
+.rebar3
+_*
+*~
+*.swp
+*.swo
+.erlang.cookie
+ebin
+log
+erl_crash.dump
+.rebar
+logs
+.idea
+*.iml
+rebar3.crashdump
+
+TAGS
+
+### JupyterNotebook ###
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Remove previous ipynb_checkpoints
+#   git rm -r .ipynb_checkpoints/
+#
+
+# End of https://www.gitignore.io/api/erlang,jupyternotebook
