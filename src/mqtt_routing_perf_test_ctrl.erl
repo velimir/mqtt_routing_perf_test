@@ -1,8 +1,8 @@
--module(mqtt_playground_ctrl).
+-module(mqtt_routing_perf_test_ctrl).
 
 -behaviour(gen_statem).
 
--include("mqtt_playground.hrl").
+-include("mqtt_routing_perf_test.hrl").
 
 -ifdef(EUNIT).
 -include_lib("eunit/include/eunit.hrl").
@@ -110,8 +110,8 @@ start_execution(internal, _Msg,
                 #data{execution_plan = [Execution | Plan]} = Data0) ->
     #execution{topic_count = TopicCount, topic_len = TopicLen} = Execution,
     Topics = gen_topics(TopicCount, TopicLen),
-    {ok, SubPid} = mqtt_playground_sub_sup:start_child(self(), Topics),
-    {ok, PubPid} = mqtt_playground_pub_sup:start_child(Topics),
+    {ok, SubPid} = mqtt_routing_perf_test_sub_sup:start_child(self(), Topics),
+    {ok, PubPid} = mqtt_routing_perf_test_pub_sup:start_child(Topics),
     Data =
         Data0#data{
           execution = Execution, execution_plan = Plan,
@@ -122,8 +122,8 @@ start_execution(internal, _Msg,
 publish(internal, _Msg,
         #data{execution = #execution{msg_count = 0},
               publisher = PubPid, receiver = SubPid} = Data) ->
-    ok = mqtt_playground_pub_sup:terminate_child(PubPid),
-    ok = mqtt_playground_sub_sup:terminate_child(SubPid),
+    ok = mqtt_routing_perf_test_pub_sup:terminate_child(PubPid),
+    ok = mqtt_routing_perf_test_sub_sup:terminate_child(SubPid),
     Data1 = Data#data{execution = undefined,
                       publisher = undefined,
                       receiver = undefined},
@@ -133,7 +133,7 @@ publish(internal, _Msg,
         #data{execution = #execution{msg_count = MsgCount} = Exec,
               publisher = PubPid} = Data)
   when MsgCount > 0 ->
-    mqtt_playground_pub:publish(PubPid),
+    mqtt_routing_perf_test_pub:publish(PubPid),
     Data1 = Data#data{execution = Exec#execution{msg_count = MsgCount - 1}},
     {next_state, receive_msg, Data1}.
 
@@ -145,7 +145,7 @@ receive_msg(cast,
     Stat = #stat{time = ReceiveTime - SentTime,
                  topic_count = TopicCount,
                  topic_len = TopicLen},
-    mqtt_playground_stats:report(Stat),
+    mqtt_routing_perf_test_stats:report(Stat),
     {next_state, publish, Data,
      [{next_event, internal, undefined}]}.
 
@@ -229,9 +229,6 @@ stream_acc_(Pred) ->
                     {stop, Acc}
             end
     end.
-
-lte(Value) ->
-    fun(Lh) -> Lh =< Value end.
 
 lt(Value) ->
     fun(Lh) -> Lh < Value end.

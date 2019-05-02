@@ -1,4 +1,4 @@
--module(mqtt_playground_sup).
+-module(mqtt_routing_perf_test_workers_sup_sup).
 
 -behaviour(supervisor).
 
@@ -50,28 +50,22 @@ init([]) ->
                  intensity => 1,
                  period => 5},
 
-    WorkersSup = #{id => mqtt_playground_workers_sup_sup,
-                   start => {mqtt_playground_workers_sup_sup, start_link, []},
-                   restart => permanent,
-                   shutdown => 5000,
-                   type => supervisor,
-                   modules => [mqtt_playground_workers_sup_sup]},
+    SubSup = #{id => mqtt_routing_perf_test_sub_sup,
+               start => {mqtt_routing_perf_test_sub_sup, start_link, []},
+               restart => permanent,
+               shutdown => 5000,
+               type => supervisor,
+               modules => [mqtt_routing_perf_test_sub_sup]},
 
-    Stats = #{id => mqtt_playground_stats,
-              start => {mqtt_playground_stats, start_link, []},
-              restart => permanent,
-              shutdown => 5000,
-              type => worker,
-              modules => [mqtt_playground_stats]},
+    PubSup = #{id => mqtt_routing_perf_test_pub_sup,
+               start => {mqtt_routing_perf_test_pub_sup, start_link, []},
+               restart => permanent,
+               shutdown => 5000,
+               type => supervisor,
+               modules => [mqtt_routing_perf_test_pub_sup]},
 
-    Controller = #{id => mqtt_playground_ctrl,
-                   start => {mqtt_playground_ctrl, start_link, []},
-                   restart => temporary,
-                   shutdown => 5000,
-                   type => worker,
-                   modules => [mqtt_playground_ctrl]},
 
-    Children = [WorkersSup, Stats, Controller],
+    Children = [SubSup, PubSup],
 
     {ok, {SupFlags, Children}}.
 

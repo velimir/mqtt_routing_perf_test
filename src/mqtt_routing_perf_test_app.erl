@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc mqtt_playground public API
+%% @doc mqtt_routing_perf_test public API
 %% @end
 %%%-------------------------------------------------------------------
 
--module(mqtt_playground_app).
+-module(mqtt_routing_perf_test_app).
 
 -behaviour(application).
 
@@ -15,7 +15,7 @@
 %%====================================================================
 
 start(_StartType, _StartArgs) ->
-    mqtt_playground_sup:start_link().
+    mqtt_routing_perf_test_sup:start_link().
 
 %%--------------------------------------------------------------------
 stop(_State) ->

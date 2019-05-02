@@ -1,11 +1,12 @@
--module(mqtt_playground_pub).
+-module(mqtt_routing_perf_test_sub).
 
 -behaviour(gen_server).
 
--include("mqtt_playground.hrl").
+-include("mqtt_routing_perf_test.hrl").
+-include_lib("emqttc/include/emqttc_packet.hrl").
 
 %% API
--export([start_link/1, publish/1]).
+-export([start_link/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -13,8 +14,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {connection :: pid(),
-                topics     :: array:array(iodata())}).
+-record(state, {owner :: pid()}).
 
 %%%===================================================================
 %%% API
@@ -25,16 +25,13 @@
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link(array:array(iodata())) ->
+-spec start_link(pid(), array:array(iodata())) ->
                         {ok, Pid :: pid()} |
                         {error, Error :: {already_started, pid()}} |
                         {error, Error :: term()} |
                         ignore.
-start_link(Topics) ->
-    gen_server:start_link(?MODULE, [Topics], []).
-
-publish(Publisher) ->
-    gen_server:call(Publisher, publish).
+start_link(Owner, Topics) ->
+    gen_server:start_link(?MODULE, [Owner, Topics], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -51,17 +48,24 @@ publish(Publisher) ->
                               {ok, State :: term(), hibernate} |
                               {stop, Reason :: term()} |
                               ignore.
-init([Topics]) ->
-    MQTTOpts = [{client_id, <<"publisher">>},
+%% TODO: move to a behaviour
+init([Owner, Topics]) ->
+    MQTTOpts = [{client_id, <<"subscriber">>},
                 {clean_sess, true}],
     {ok, Connection} = emqttc:start_link(MQTTOpts),
     receive
         {mqttc, Connection, connected} ->
-            {ok, #state{connection = Connection, topics = Topics}}
+            QosTopics = [{Topic, qos0} || Topic <- array:to_list(Topics)],
+            Results =
+                [emqttc:sync_subscribe(Connection, QoSTopic)
+                 || QoSTopic <- QosTopics],
+            true = lists:all(fun subscribed/1, Results),
+            {ok, #state{owner = Owner}}
     after
         10000 ->
             {stop, {error, connack_timeout}}
     end.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -78,12 +82,9 @@ init([Topics]) ->
                          {noreply, NewState :: term(), hibernate} |
                          {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
                          {stop, Reason :: term(), NewState :: term()}.
-handle_call(publish, _From,
-            #state{connection = Connection, topics = Topics} = State) ->
-    Topic = mqtt_playground_utils:array_choose(Topics),
-    Msg = #msg{sent_at = erlang:monotonic_time(microsecond)},
-    emqttc:publish(Connection, Topic, term_to_binary(Msg), qos0),
-    {reply, ok, State}.
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -110,7 +111,11 @@ handle_cast(_Request, State) ->
                          {noreply, NewState :: term(), Timeout :: timeout()} |
                          {noreply, NewState :: term(), hibernate} |
                          {stop, Reason :: normal | term(), NewState :: term()}.
-handle_info(_Info, State) ->
+handle_info({publish, _Topic, MessageBin}, #state{owner = Owner} = State) ->
+    ReceivedAt = erlang:monotonic_time(microsecond),
+    Message = #msg{} = binary_to_term(MessageBin),
+    Message1 = Message#msg{received_at = ReceivedAt},
+    mqtt_routing_perf_test_ctrl:message_received(Owner, Message1),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -156,3 +161,7 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+subscribed({ok, ?QOS_UNAUTHORIZED}) ->
+    false;
+subscribed({ok, Qos}) when ?IS_QOS(Qos) ->
+    true.

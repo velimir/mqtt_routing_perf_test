@@ -1,9 +1,9 @@
--module(mqtt_playground_workers_sup_sup).
+-module(mqtt_routing_perf_test_sub_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, start_child/2, terminate_child/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -27,6 +27,13 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+start_child(Owner, Topics) ->
+    supervisor:start_child(?SERVER, [Owner, Topics]).
+
+terminate_child(Id) ->
+    supervisor:terminate_child(?SERVER, Id).
+
+
 %%%===================================================================
 %%% Supervisor callbacks
 %%%===================================================================
@@ -46,28 +53,18 @@ start_link() ->
                   ignore.
 init([]) ->
 
-    SupFlags = #{strategy => one_for_one,
+    SupFlags = #{strategy => simple_one_for_one,
                  intensity => 1,
                  period => 5},
 
-    SubSup = #{id => mqtt_playground_sub_sup,
-               start => {mqtt_playground_sub_sup, start_link, []},
+    AChild = #{id => mqtt_routing_perf_test_sub,
+               start => {mqtt_routing_perf_test_sub, start_link, []},
                restart => permanent,
                shutdown => 5000,
-               type => supervisor,
-               modules => [mqtt_playground_sub_sup]},
+               type => worker,
+               modules => [mqtt_routing_perf_test_sub]},
 
-    PubSup = #{id => mqtt_playground_pub_sup,
-               start => {mqtt_playground_pub_sup, start_link, []},
-               restart => permanent,
-               shutdown => 5000,
-               type => supervisor,
-               modules => [mqtt_playground_pub_sup]},
-
-
-    Children = [SubSup, PubSup],
-
-    {ok, {SupFlags, Children}}.
+    {ok, {SupFlags, [AChild]}}.
 
 %%%===================================================================
 %%% Internal functions

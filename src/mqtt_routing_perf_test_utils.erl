@@ -1,4 +1,4 @@
--module(mqtt_playground_utils).
+-module(mqtt_routing_perf_test_utils).
 
 -ifdef(EUNIT).
 -include_lib("eunit/include/eunit.hrl").

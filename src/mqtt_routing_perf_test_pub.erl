@@ -1,11 +1,11 @@
--module(mqtt_playground_stats).
+-module(mqtt_routing_perf_test_pub).
 
 -behaviour(gen_server).
 
--include("mqtt_playground.hrl").
+-include("mqtt_routing_perf_test.hrl").
 
 %% API
--export([start_link/0, report/1]).
+-export([start_link/1, publish/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -13,7 +13,8 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {file :: file:io_device()}).
+-record(state, {connection :: pid(),
+                topics     :: array:array(iodata())}).
 
 %%%===================================================================
 %%% API
@@ -24,15 +25,16 @@
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link() -> {ok, Pid :: pid()} |
-                      {error, Error :: {already_started, pid()}} |
-                      {error, Error :: term()} |
-                      ignore.
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec start_link(array:array(iodata())) ->
+                        {ok, Pid :: pid()} |
+                        {error, Error :: {already_started, pid()}} |
+                        {error, Error :: term()} |
+                        ignore.
+start_link(Topics) ->
+    gen_server:start_link(?MODULE, [Topics], []).
 
-report(Stat) ->
-    gen_server:call(?SERVER, {report, Stat}).
+publish(Publisher) ->
+    gen_server:call(Publisher, publish).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -49,32 +51,17 @@ report(Stat) ->
                               {ok, State :: term(), hibernate} |
                               {stop, Reason :: term()} |
                               ignore.
-init([]) ->
-    process_flag(trap_exit, true),
-    PrivDir = code:priv_dir(mqtt_playground),
-    ok = filelib:ensure_dir(PrivDir),
-    FileName = filename:join([PrivDir, "stats.csv"]),
-    logger:debug("FileName: ~p", [FileName]),
-    {ok, FD} = file:open(FileName, [write, delayed_write]),
-    write_header(FD),
-    {ok, #state{file = FD}}.
-
-write_header(Fd) ->
-    write_row(Fd, record_info(fields, stat)).
-
-write_row(Fd, Row) ->
-    file:write(Fd, [lists:join(",", format_row(Row)), $\n]).
-
-format_row(#stat{time = Time, topic_count = TopicCount, topic_len = TopicLen}) ->
-    format_row([Time, TopicCount, TopicLen]);
-format_row(Items) when is_list(Items) ->
-    [to_string(Item) || Item <- Items].
-
-to_string(Int) when is_integer(Int) ->
-    integer_to_list(Int);
-to_string(Atom) when is_atom(Atom) ->
-    atom_to_list(Atom).
-
+init([Topics]) ->
+    MQTTOpts = [{client_id, <<"publisher">>},
+                {clean_sess, true}],
+    {ok, Connection} = emqttc:start_link(MQTTOpts),
+    receive
+        {mqttc, Connection, connected} ->
+            {ok, #state{connection = Connection, topics = Topics}}
+    after
+        10000 ->
+            {stop, {error, connack_timeout}}
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -91,8 +78,11 @@ to_string(Atom) when is_atom(Atom) ->
                          {noreply, NewState :: term(), hibernate} |
                          {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
                          {stop, Reason :: term(), NewState :: term()}.
-handle_call({report, #stat{} = Stat}, _From, #state{file = Fd} = State) ->
-    write_row(Fd, Stat),
+handle_call(publish, _From,
+            #state{connection = Connection, topics = Topics} = State) ->
+    Topic = mqtt_routing_perf_test_utils:array_choose(Topics),
+    Msg = #msg{sent_at = erlang:monotonic_time(microsecond)},
+    emqttc:publish(Connection, Topic, term_to_binary(Msg), qos0),
     {reply, ok, State}.
 
 %%--------------------------------------------------------------------
@@ -134,8 +124,8 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec terminate(Reason :: normal | shutdown | {shutdown, term()} | term(),
                 State :: term()) -> any().
-terminate(_Reason, #state{file = Fd}) ->
-    ok = file:close(Fd).
+terminate(_Reason, _State) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private

@@ -1,9 +1,9 @@
--module(mqtt_playground_pub_sup).
+-module(mqtt_routing_perf_test_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_child/1, terminate_child/1]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -27,13 +27,6 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-start_child(Topics) ->
-    supervisor:start_child(?SERVER, [Topics]).
-
-terminate_child(Id) ->
-    supervisor:terminate_child(?SERVER, Id).
-
-
 %%%===================================================================
 %%% Supervisor callbacks
 %%%===================================================================
@@ -53,18 +46,34 @@ terminate_child(Id) ->
                   ignore.
 init([]) ->
 
-    SupFlags = #{strategy => simple_one_for_one,
+    SupFlags = #{strategy => one_for_one,
                  intensity => 1,
                  period => 5},
 
-    AChild = #{id => mqtt_playground_pub,
-               start => {mqtt_playground_pub, start_link, []},
-               restart => permanent,
-               shutdown => 5000,
-               type => worker,
-               modules => [mqtt_playground_pub]},
+    WorkersSup = #{id => mqtt_routing_perf_test_workers_sup_sup,
+                   start => {mqtt_routing_perf_test_workers_sup_sup, start_link, []},
+                   restart => permanent,
+                   shutdown => 5000,
+                   type => supervisor,
+                   modules => [mqtt_routing_perf_test_workers_sup_sup]},
 
-    {ok, {SupFlags, [AChild]}}.
+    Stats = #{id => mqtt_routing_perf_test_stats,
+              start => {mqtt_routing_perf_test_stats, start_link, []},
+              restart => permanent,
+              shutdown => 5000,
+              type => worker,
+              modules => [mqtt_routing_perf_test_stats]},
+
+    Controller = #{id => mqtt_routing_perf_test_ctrl,
+                   start => {mqtt_routing_perf_test_ctrl, start_link, []},
+                   restart => temporary,
+                   shutdown => 5000,
+                   type => worker,
+                   modules => [mqtt_routing_perf_test_ctrl]},
+
+    Children = [WorkersSup, Stats, Controller],
+
+    {ok, {SupFlags, Children}}.
 
 %%%===================================================================
 %%% Internal functions

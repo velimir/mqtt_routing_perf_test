@@ -1,12 +1,11 @@
--module(mqtt_playground_sub).
+-module(mqtt_routing_perf_test_stats).
 
 -behaviour(gen_server).
 
--include("mqtt_playground.hrl").
--include_lib("emqttc/include/emqttc_packet.hrl").
+-include("mqtt_routing_perf_test.hrl").
 
 %% API
--export([start_link/2]).
+-export([start_link/0, report/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -14,7 +13,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {owner :: pid()}).
+-record(state, {file :: file:io_device()}).
 
 %%%===================================================================
 %%% API
@@ -25,13 +24,15 @@
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link(pid(), array:array(iodata())) ->
-                        {ok, Pid :: pid()} |
-                        {error, Error :: {already_started, pid()}} |
-                        {error, Error :: term()} |
-                        ignore.
-start_link(Owner, Topics) ->
-    gen_server:start_link(?MODULE, [Owner, Topics], []).
+-spec start_link() -> {ok, Pid :: pid()} |
+                      {error, Error :: {already_started, pid()}} |
+                      {error, Error :: term()} |
+                      ignore.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+report(Stat) ->
+    gen_server:call(?SERVER, {report, Stat}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -48,23 +49,31 @@ start_link(Owner, Topics) ->
                               {ok, State :: term(), hibernate} |
                               {stop, Reason :: term()} |
                               ignore.
-%% TODO: move to a behaviour
-init([Owner, Topics]) ->
-    MQTTOpts = [{client_id, <<"subscriber">>},
-                {clean_sess, true}],
-    {ok, Connection} = emqttc:start_link(MQTTOpts),
-    receive
-        {mqttc, Connection, connected} ->
-            QosTopics = [{Topic, qos0} || Topic <- array:to_list(Topics)],
-            Results =
-                [emqttc:sync_subscribe(Connection, QoSTopic)
-                 || QoSTopic <- QosTopics],
-            true = lists:all(fun subscribed/1, Results),
-            {ok, #state{owner = Owner}}
-    after
-        10000 ->
-            {stop, {error, connack_timeout}}
-    end.
+init([]) ->
+    process_flag(trap_exit, true),
+    PrivDir = code:priv_dir(mqtt_routing_perf_test),
+    ok = filelib:ensure_dir(PrivDir),
+    FileName = filename:join([PrivDir, "stats.csv"]),
+    logger:debug("FileName: ~p", [FileName]),
+    {ok, FD} = file:open(FileName, [write, delayed_write]),
+    write_header(FD),
+    {ok, #state{file = FD}}.
+
+write_header(Fd) ->
+    write_row(Fd, record_info(fields, stat)).
+
+write_row(Fd, Row) ->
+    file:write(Fd, [lists:join(",", format_row(Row)), $\n]).
+
+format_row(#stat{time = Time, topic_count = TopicCount, topic_len = TopicLen}) ->
+    format_row([Time, TopicCount, TopicLen]);
+format_row(Items) when is_list(Items) ->
+    [to_string(Item) || Item <- Items].
+
+to_string(Int) when is_integer(Int) ->
+    integer_to_list(Int);
+to_string(Atom) when is_atom(Atom) ->
+    atom_to_list(Atom).
 
 
 %%--------------------------------------------------------------------
@@ -82,9 +91,9 @@ init([Owner, Topics]) ->
                          {noreply, NewState :: term(), hibernate} |
                          {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
                          {stop, Reason :: term(), NewState :: term()}.
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call({report, #stat{} = Stat}, _From, #state{file = Fd} = State) ->
+    write_row(Fd, Stat),
+    {reply, ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -111,11 +120,7 @@ handle_cast(_Request, State) ->
                          {noreply, NewState :: term(), Timeout :: timeout()} |
                          {noreply, NewState :: term(), hibernate} |
                          {stop, Reason :: normal | term(), NewState :: term()}.
-handle_info({publish, _Topic, MessageBin}, #state{owner = Owner} = State) ->
-    ReceivedAt = erlang:monotonic_time(microsecond),
-    Message = #msg{} = binary_to_term(MessageBin),
-    Message1 = Message#msg{received_at = ReceivedAt},
-    mqtt_playground_ctrl:message_received(Owner, Message1),
+handle_info(_Info, State) ->
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -129,8 +134,8 @@ handle_info({publish, _Topic, MessageBin}, #state{owner = Owner} = State) ->
 %%--------------------------------------------------------------------
 -spec terminate(Reason :: normal | shutdown | {shutdown, term()} | term(),
                 State :: term()) -> any().
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{file = Fd}) ->
+    ok = file:close(Fd).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -161,7 +166,3 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-subscribed({ok, ?QOS_UNAUTHORIZED}) ->
-    false;
-subscribed({ok, Qos}) when ?IS_QOS(Qos) ->
-    true.
