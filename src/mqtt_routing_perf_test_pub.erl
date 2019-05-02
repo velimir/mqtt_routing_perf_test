@@ -80,7 +80,7 @@ init([Topics]) ->
                          {stop, Reason :: term(), NewState :: term()}.
 handle_call(publish, _From,
             #state{connection = Connection, topics = Topics} = State) ->
-    Topic = mqtt_routing_perf_test_utils:array_choose(Topics),
+    Topic = array_choose(Topics),
     Msg = #msg{sent_at = erlang:monotonic_time(microsecond)},
     emqttc:publish(Connection, Topic, term_to_binary(Msg), qos0),
     {reply, ok, State}.
@@ -156,3 +156,8 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+array_choose(Array) ->
+    Size = array:size(Array),
+    RandIndex = rand:uniform(Size) - 1,
+    array:get(RandIndex, Array).
